@@ -1,8 +1,0 @@
-{
-    "importFilesToOrigRelpaths": {},
-    "primary_contract": "GasBadStakingMining",
-    "specfile": "certora/spec/GasBad.spec",
-    "specfileOrigRelpath": "certora/spec/GasBad.spec",
-    "specfilesToImportDecls": {},
-    "type": "spec"
-}
