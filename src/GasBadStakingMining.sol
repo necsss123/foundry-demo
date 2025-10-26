@@ -6,19 +6,22 @@ import {SafeERC20} from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin
 import {OwnableUpgradeable} from "lib/openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
 import {Initializable} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "lib/openzeppelin-contracts-upgradeable/contracts/utils/ReentrancyGuardUpgradeable.sol";
 import "./sale/SalesFactory.sol";
 import "./LibCalReward.sol";
 
 contract GasBadStakingMining is
     Initializable,
     OwnableUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    ReentrancyGuardUpgradeable
 {
     error StakingMining__MiningIsOver();
     error StakingMining__AmountNotEnough();
     error StakingMining__SaleNotCreated();
     error StakingMining__SalesFactoryNotSet();
     error StakingMining__TokenNotUnlocked();
+    error StakingMining__LpTokenCannotBeRewardToken();
 
     using SafeERC20 for IERC20;
 
@@ -99,6 +102,7 @@ contract GasBadStakingMining is
     ) public initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
         erc20 = _erc20;
         rewardPerSecond = _rewardPerSecond;
         startTimestamp = _startTimestamp;
@@ -116,7 +120,7 @@ contract GasBadStakingMining is
             revert StakingMining__MiningIsOver();
         }
 
-        erc20.safeTransferFrom(address(msg.sender), address(this), _amount);
+        erc20.safeTransferFrom(msg.sender, address(this), _amount);
         endTimestamp += _amount / rewardPerSecond;
         totalRewards = totalRewards + _amount;
     }
@@ -128,6 +132,9 @@ contract GasBadStakingMining is
         IERC20 _lpToken,
         bool _withUpdate
     ) public onlyOwner {
+        if (_lpToken == erc20) {
+            revert StakingMining__LpTokenCannotBeRewardToken();
+        }
         if (_withUpdate) {
             massUpdatePools();
         }
@@ -218,16 +225,12 @@ contract GasBadStakingMining is
                 userInfo.rewardDebt
             );
 
-            erc20.transfer(msg.sender, pendingRewards);
-
             paidOut += pendingRewards;
+
+            erc20.safeTransfer(msg.sender, pendingRewards);
         }
 
-        poolInfo.lpToken.safeTransferFrom(
-            address(msg.sender),
-            address(this),
-            _amount
-        );
+        poolInfo.lpToken.safeTransferFrom(msg.sender, address(this), _amount);
         poolInfo.totalDeposits = poolInfo.totalDeposits + _amount;
 
         userInfo.amount = userInfo.amount + _amount;
@@ -269,9 +272,9 @@ contract GasBadStakingMining is
             userInfo.rewardDebt
         );
 
-        erc20.transfer(msg.sender, pendingRewards);
-
         paidOut += pendingRewards;
+
+        erc20.safeTransfer(msg.sender, pendingRewards);
 
         userInfo.amount = userInfo.amount - _amount;
 
@@ -281,7 +284,7 @@ contract GasBadStakingMining is
         );
 
         // 撤回流动性
-        poolInfo.lpToken.safeTransfer(address(msg.sender), _amount);
+        poolInfo.lpToken.safeTransfer(msg.sender, _amount);
         poolInfo.totalDeposits = poolInfo.totalDeposits - _amount;
 
         // emit Withdraw(msg.sender, _poolId, _amount);
@@ -303,7 +306,7 @@ contract GasBadStakingMining is
     function emergencyWithdraw(uint256 _poolId) public {
         Pool storage poolInfo = poolArr[_poolId];
         User storage userInfo = userMap[_poolId][msg.sender];
-        poolInfo.lpToken.safeTransfer(address(msg.sender), userInfo.amount);
+        poolInfo.lpToken.safeTransfer(msg.sender, userInfo.amount);
         poolInfo.totalDeposits = poolInfo.totalDeposits - userInfo.amount;
         // emit EmergencyWithdraw(msg.sender, _poolId, userInfo.amount);
         uint256 userAmount = userInfo.amount;
